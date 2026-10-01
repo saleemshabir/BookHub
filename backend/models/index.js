@@ -13,6 +13,7 @@ const Book = m.model('Book', new m.Schema({
   category: { type: String, required: true, index: true },
   description: String,
   link: { type: String, required: true }, // free reading / download page
+  completeText: { type: Boolean, default: false, index: true },
 }, { timestamps: true }));
 
 const Comment = m.model('Comment', new m.Schema({

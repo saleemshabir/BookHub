@@ -3,6 +3,7 @@ import { Routes, Route, Link, useNavigate } from 'react-router-dom';
 import { AuthCtx } from './auth.js';
 import Home from './pages/Home.jsx';
 import Book from './pages/Book.jsx';
+import Reader from './pages/Reader.jsx';
 import Auth from './pages/Auth.jsx';
 
 export default function App() {
@@ -42,6 +43,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/books/:id" element={<Book />} />
+          <Route path="/books/:id/read" element={<Reader />} />
           <Route path="/login" element={<Auth mode="login" />} />
           <Route path="/register" element={<Auth mode="register" />} />
         </Routes>

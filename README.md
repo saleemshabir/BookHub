@@ -1,15 +1,16 @@
 # BookHub – Free Study Books (MERN)
 
-A full-stack MERN app: browse free books by category, search, open the free reading link, and comment on each book.
+A full-stack MERN app: browse free books by category, search, save titles to a personal shelf, track reading status, open free reading editions, and comment on each book.
 
 **Stack:** MongoDB + Mongoose, Express, React (Vite), Node.js, JWT auth (bcrypt).
 
 ## Features
-- 21 free books across 7 categories (Computer Science, Programming, Mathematics, Science, Literature, Philosophy, Economics)
+- 28 books with verified complete plain-text editions, read entirely inside BookHub
 - Filter by category and search by title or author
+- Save books to a browser-based personal shelf and track titles as currently reading or finished
 - Register / log in (JWT)
 - Comment on any book; delete your own comments (admins can delete any)
-- Admin can add books with `POST /api/books`
+- Admin can add books from the catalog page or with `POST /api/books`; new entries are checked for a complete plain-text edition
 
 ## Setup
 1. Install Node.js 18+ and MongoDB (or use a free MongoDB Atlas URI).

@@ -5,6 +5,7 @@ const { Book, User } = require('./models');
 
 const G = (id) => `https://www.gutenberg.org/ebooks/${id}`;
 const OS = (slug) => `https://openstax.org/details/books/${slug}`;
+const unavailableTextIds = new Set(['33283', '5001']);
 
 // [title, author, category, link, description]
 const books = [
@@ -29,14 +30,37 @@ const books = [
   ['Meditations', 'Marcus Aurelius', 'Philosophy', G(2680), 'Stoic reflections from a Roman emperor.'],
   ['The Art of War', 'Sun Tzu', 'Philosophy', G(132), 'Ancient treatise on strategy and leadership.'],
   ['The Wealth of Nations', 'Adam Smith', 'Economics', G(3300), 'The foundational text of modern economics.'],
+  ['Great Expectations', 'Charles Dickens', 'Literature', G(1400), 'A coming-of-age novel of ambition, loyalty and social class.'],
+  ['Jane Eyre', 'Charlotte Bronte', 'Literature', G(1260), 'A young governess seeks independence, love and a place in the world.'],
+  ['Moby-Dick', 'Herman Melville', 'Literature', G(2701), 'A whaling voyage becomes an obsession with a formidable white whale.'],
+  ['Dracula', 'Bram Stoker', 'Literature', G(345), 'A Gothic horror told through journals, letters and newspaper clippings.'],
+  ['The Adventures of Sherlock Holmes', 'Arthur Conan Doyle', 'Literature', G(1661), 'Twelve mysteries featuring Sherlock Holmes and Dr. Watson.'],
+  ['The Count of Monte Cristo', 'Alexandre Dumas', 'Literature', G(1184), 'A sweeping story of wrongful imprisonment, escape and revenge.'],
+  ['The Time Machine', 'H. G. Wells', 'Literature', G(35), 'A Victorian scientist travels far into humanity\'s future.'],
+  ['The War of the Worlds', 'H. G. Wells', 'Literature', G(36), 'An early science-fiction story of an invasion from Mars.'],
+  ['Treasure Island', 'Robert Louis Stevenson', 'Literature', G(120), 'A young map-holder sets sail in search of buried pirate treasure.'],
+  ['Little Women', 'Louisa May Alcott', 'Literature', G(37106), 'The March sisters grow up, pursue their ambitions and support one another.'],
+  ['The Call of the Wild', 'Jack London', 'Literature', G(215), 'A domesticated dog adapts to life in the Yukon wilderness.'],
+  ['Walden', 'Henry David Thoreau', 'Literature', G(205), 'Thoreau reflects on self-reliance and a deliberate life at Walden Pond.'],
+  ['The Yellow Wallpaper', 'Charlotte Perkins Gilman', 'Literature', G(1952), 'A short story about confinement, identity and mental health.'],
+  ['The Strange Case of Dr. Jekyll and Mr. Hyde', 'Robert Louis Stevenson', 'Literature', G(43), 'A London lawyer investigates the divided nature of a mysterious client.'],
+  ['The Iliad', 'Homer', 'Literature', G(6130), 'An epic poem about the final weeks of the Trojan War.'],
+  ['The Odyssey', 'Homer', 'Literature', G(1727), 'An epic journey of homecoming, endurance and cleverness.'],
+  ['The Prince', 'Niccolo Machiavelli', 'Philosophy', G(1232), 'A Renaissance-era examination of political power and leadership.'],
+  ['Utopia', 'Thomas More', 'Philosophy', G(2130), 'A dialogue imagining a society organized around shared resources.'],
+  ['Common Sense', 'Thomas Paine', 'History', G(147), 'A concise 1776 argument for American independence.'],
+  ['The Federalist Papers', 'Alexander Hamilton, James Madison and John Jay', 'History', G(18), 'Essays explaining and defending the proposed United States Constitution.'],
 ];
 
 (async () => {
   await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bookhub');
-  await Book.deleteMany({});
-  await Book.insertMany(books.map(([title, author, category, link, description]) => ({ title, author, category, link, description })));
+  await Promise.all(books.map(([title, author, category, link, description]) =>
+    Book.updateOne({ title }, {
+      $set: { completeText: Boolean(link.match(/\/ebooks\/(\d+)/)?.[1] && !unavailableTextIds.has(link.match(/\/ebooks\/(\d+)/)[1])) },
+      $setOnInsert: { title, author, category, link, description },
+    }, { upsert: true })));
   if (!(await User.findOne({ email: 'admin@bookhub.com' })))
     await User.create({ name: 'Admin', email: 'admin@bookhub.com', password: await bcrypt.hash('admin123', 10), role: 'admin' });
-  console.log(`Seeded ${books.length} books. Admin login: admin@bookhub.com / admin123`);
+  console.log(`Catalog ready: ${await Book.countDocuments({ completeText: true })} complete books available in-app.`);
   process.exit(0);
 })();
