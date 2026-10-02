@@ -15,3 +15,7 @@ export function setLibraryEntry(bookId, entry) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   return next;
 }
+
+export function getBookProgress(bookId) {
+  return getLibrary()[bookId]?.page || 0;
+}

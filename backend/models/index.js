@@ -12,6 +12,16 @@ const Book = m.model('Book', new m.Schema({
   author: String,
   category: { type: String, required: true, index: true },
   description: String,
+  subjects: [String],
+  language: { type: String, default: 'en', index: true },
+  pageCount: Number,
+  source: { type: String, default: 'Project Gutenberg' },
+  rightsStatus: { type: String, default: 'Public domain' },
+  sourceId: String,
+  readerType: { type: String, enum: ['gutenberg', 'licensed-html', 'licensed-text', 'external'], default: 'gutenberg' },
+  readerUrl: String,
+  plainTextUrl: String,
+  coverUrl: String,
   link: { type: String, required: true }, // free reading / download page
   completeText: { type: Boolean, default: false, index: true },
 }, { timestamps: true }));

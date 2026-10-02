@@ -1,22 +1,40 @@
 const router = require('express').Router();
 const { Book, Comment } = require('../models');
 const { auth, admin } = require('../middleware/auth');
+const { sourceById, readOpenBook } = require('../openBooks');
+const { isExcludedBook } = require('../libraryPolicy');
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const gutenbergId = (link = '') => link.match(/^https:\/\/www\.gutenberg\.org\/ebooks\/(\d+)(?:[/?#]|$)/)?.[1];
-const fullTextFilter = { completeText: true };
+const catalogFilter = { $or: [{ completeText: true }, { readerType: 'external' }] };
 const textCache = new Map();
 
-async function getCompleteText(id) {
-  if (textCache.has(id)) return textCache.get(id);
+function allowedReaderUrl(value) {
   try {
-    const response = await fetch(`https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`, {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (
+      (url.hostname === 'archive.org' && url.pathname.startsWith('/embed/'))
+      || (url.hostname === 'ur.wikisource.org' && url.pathname.startsWith('/wiki/'))
+      || (url.hostname === 'www.rekhta.org' && url.pathname.startsWith('/ebooks/detail/'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function getCompleteText(book) {
+  const id = book.sourceId || gutenbergId(book.link);
+  const url = book.plainTextUrl || (id && `https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`);
+  if (!id || !url) return null;
+  if (textCache.has(url)) return textCache.get(url);
+  try {
+    const response = await fetch(url, {
       signal: AbortSignal.timeout(15000),
     });
     if (!response.ok || !(response.headers.get('content-type') || '').includes('text/plain')) return null;
     const content = await response.text();
     if (content.length < 10000 || /<html[\s>]/i.test(content.slice(0, 1000))) return null;
-    textCache.set(id, content);
+    textCache.set(url, content);
     return content;
   } catch {
     return null;
@@ -25,35 +43,69 @@ async function getCompleteText(id) {
 
 // List books (optional ?category=&q=)
 router.get('/', async (req, res) => {
-  const { category, q } = req.query;
-  const filter = { ...fullTextFilter };
+  const { category, language, subject, q, field = 'all' } = req.query;
+  const filter = { $and: [catalogFilter] };
   if (category && category !== 'All') filter.category = category;
-  if (q) filter.$or = [{ title: new RegExp(escapeRe(q), 'i') }, { author: new RegExp(escapeRe(q), 'i') }];
+  if (language && language !== 'All') filter.language = language;
+  if (subject) filter.subjects = new RegExp(escapeRe(subject), 'i');
+  if (q) {
+    const pattern = new RegExp(escapeRe(q), 'i');
+    const fields = {
+      title: [{ title: pattern }],
+      author: [{ author: pattern }],
+      category: [{ category: pattern }],
+      subject: [{ subjects: pattern }],
+      language: [{ language: pattern }],
+      all: [{ title: pattern }, { author: pattern }, { category: pattern }, { subjects: pattern }, { language: pattern }],
+    };
+    filter.$and.push({ $or: fields[field] || fields.all });
+  }
   res.json(await Book.find(filter).sort('title'));
 });
 
-router.get('/categories', async (_req, res) => res.json((await Book.distinct('category', fullTextFilter)).sort()));
+router.get('/categories', async (_req, res) => res.json((await Book.distinct('category', catalogFilter)).sort()));
+router.get('/languages', async (_req, res) => res.json((await Book.distinct('language', catalogFilter)).sort()));
 
 router.get('/:id/read', async (req, res) => {
   const book = await Book.findById(req.params.id).catch(() => null);
-  const id = book && gutenbergId(book.link);
-  if (!id || !book.completeText) return res.status(404).json({ message: 'Complete in-app text is not available for this book' });
-  const content = await getCompleteText(id);
+  if (book?.readerType === 'external' && allowedReaderUrl(book.readerUrl))
+    return res.json({ book, embedUrl: book.readerUrl });
+  if (!book || !book.completeText) return res.status(404).json({ message: 'Complete in-app text is not available for this book' });
+  if (book.readerType !== 'gutenberg') {
+    const result = sourceById.has(book.sourceId) && await readOpenBook(book.sourceId);
+    if (!result) return res.status(502).json({ message: 'The complete licensed edition is temporarily unavailable' });
+    return res.json(result);
+  }
+  const content = await getCompleteText(book);
   if (!content) return res.status(502).json({ message: 'The complete text is temporarily unavailable' });
-  res.json({ book: { _id: book._id, title: book.title, author: book.author, category: book.category }, content });
+  res.json({ book, content, chapters: [] });
 });
 
 router.get('/:id', async (req, res) => {
   const book = await Book.findById(req.params.id).catch(() => null);
-  book && book.completeText && gutenbergId(book.link) ? res.json(book) : res.status(404).json({ message: 'Book not found' });
+  book && ((book.readerType === 'external' && allowedReaderUrl(book.readerUrl)) || (book.completeText && (book.readerType !== 'gutenberg' ? sourceById.has(book.sourceId) : gutenbergId(book.link))))
+    ? res.json(book)
+    : res.status(404).json({ message: 'Book not found' });
 });
 
 // Admin: add a book
 router.post('/', auth, admin, async (req, res) => {
+  if (isExcludedBook(req.body))
+    return res.status(400).json({ message: 'This category or title is not included in the library' });
   const id = gutenbergId(req.body.link);
-  if (!id || !(await getCompleteText(id)))
+  const plainTextUrl = id && `https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`;
+  const candidate = { link: req.body.link, sourceId: id, plainTextUrl };
+  if (!id || !(await getCompleteText(candidate)))
     return res.status(400).json({ message: 'Use a Project Gutenberg ebook URL with a verified complete plain-text edition' });
-  try { res.json(await Book.create({ ...req.body, completeText: true })); }
+  try { res.json(await Book.create({
+    ...req.body,
+    source: 'Project Gutenberg',
+    rightsStatus: 'Public domain',
+    sourceId: id,
+    plainTextUrl,
+    readerType: 'gutenberg',
+    completeText: true,
+  })); }
   catch (e) { res.status(400).json({ message: e.message }); }
 });
 

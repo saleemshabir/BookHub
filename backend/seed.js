@@ -2,10 +2,29 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { Book, User } = require('./models');
+const { openBooks } = require('./openBooks');
+const { excludedTitle, religiousSubjects, isExcludedBook } = require('./libraryPolicy');
 
 const G = (id) => `https://www.gutenberg.org/ebooks/${id}`;
 const OS = (slug) => `https://openstax.org/details/books/${slug}`;
 const unavailableTextIds = new Set(['33283', '5001']);
+const topicQueries = [
+  ['fiction', 'Literature & Fiction'],
+  ['history', 'History'],
+  ['science', 'Biology, Chemistry & Physics'],
+  ['engineering', 'Engineering'],
+  ['medicine', 'Medicine & Health'],
+  ['art', 'Arts & Design'],
+  ['philosophy', 'Philosophy & Psychology'],
+  ['poetry', 'Poetry'],
+  ['geography', 'Geography & Culture'],
+  ['mathematics', 'Mathematics'],
+  ['education', 'Education & Textbooks'],
+  ['programming', 'Programming'],
+  ['children', "Children's Books"],
+  ['essays', 'Essays & Short Reads'],
+  ['computer science', 'Computer Science & Technology'],
+];
 
 // [title, author, category, link, description]
 const books = [
@@ -52,15 +71,152 @@ const books = [
   ['The Federalist Papers', 'Alexander Hamilton, James Madison and John Jay', 'History', G(18), 'Essays explaining and defending the proposed United States Constitution.'],
 ];
 
+const oldCategories = {
+  'Computer Science': 'Computer Science & Technology',
+  Programming: 'Programming',
+  Mathematics: 'Mathematics',
+  Science: 'Biology, Chemistry & Physics',
+  Literature: 'Literature & Fiction',
+  Philosophy: 'Philosophy & Psychology',
+};
+
+function textFormat(formats = {}) {
+  return formats['text/plain; charset=utf-8']
+    || formats['text/plain; charset=us-ascii']
+    || Object.entries(formats).find(([type]) => type.startsWith('text/plain'))?.[1];
+}
+
+function authorNames(authors = []) {
+  return authors.map(({ name }) => name.replace(/^([^,]+),\s*(.+)$/, '$2 $1')).join(', ') || 'Author not listed';
+}
+
+function importedRecord(record, category) {
+  const plainTextUrl = textFormat(record.formats);
+  const subjects = record.subjects || [];
+  const summary = record.summaries?.[0]?.replace(/\s+/g, ' ').trim();
+  return {
+    title: record.title,
+    author: authorNames(record.authors),
+    category,
+    description: summary ? `${summary.slice(0, 280)}${summary.length > 280 ? '…' : ''}` : subjects.slice(0, 3).join(' · ') || 'Public-domain edition from Project Gutenberg.',
+    subjects,
+    language: record.languages?.[0] || 'en',
+    source: 'Project Gutenberg',
+    rightsStatus: record.copyright === false ? 'Public domain' : 'Unverified',
+    sourceId: String(record.id),
+    plainTextUrl,
+    coverUrl: record.formats?.['image/jpeg'] || '',
+    link: `https://www.gutenberg.org/ebooks/${record.id}`,
+    completeText: Boolean(plainTextUrl && record.copyright === false),
+  };
+}
+
+async function fetchGutendexBooks(topic, language = 'en') {
+  const url = new URL('https://gutendex.com/books/');
+  url.searchParams.set('languages', language);
+  url.searchParams.set('mime_type', 'text/plain');
+  url.searchParams.set('sort', 'popular');
+  url.searchParams.set('topic', topic);
+  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!response.ok) throw new Error(`Gutendex returned ${response.status}`);
+  return (await response.json()).results || [];
+}
+
+async function runLimited(tasks, limit, worker) {
+  const results = new Array(tasks.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (next < tasks.length) {
+      const index = next++;
+      results[index] = await worker(tasks[index]);
+    }
+  }));
+  return results;
+}
+
+async function importCatalog() {
+  const imported = new Map();
+  const requests = [
+    ...topicQueries.map(([topic, category]) => ({ topic, category, language: 'en' })),
+    ...['es', 'fr', 'de'].map((language) => ({ topic: 'fiction', category: 'Literature & Fiction', language })),
+  ];
+  const results = await runLimited(requests, 3, async ({ topic, category, language }) => {
+    try {
+      const books = await fetchGutendexBooks(topic, language);
+      return books.slice(0, 32).map((result) => importedRecord(result, category));
+    } catch (error) {
+      console.warn(`Catalog import skipped for ${topic} (${language}): ${error.message}`);
+      return [];
+    }
+  });
+
+  await Book.deleteMany({ sourceId: { $in: ['urdu-classic-bagh-o-bahar-catalog', 'urdu-classic-fasana-e-azad-complete', 'urdu-classic-aab-e-hayat'] } });
+  for (const records of results) {
+    for (const record of records) {
+      if (record.completeText && !isExcludedBook(record) && record.rightsStatus === 'Public domain' && !unavailableTextIds.has(record.sourceId) && !imported.has(record.sourceId))
+        imported.set(record.sourceId, record);
+    }
+  }
+
+  return imported;
+}
+
+
 (async () => {
   await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bookhub');
-  await Promise.all(books.map(([title, author, category, link, description]) =>
-    Book.updateOne({ title }, {
-      $set: { completeText: Boolean(link.match(/\/ebooks\/(\d+)/)?.[1] && !unavailableTextIds.has(link.match(/\/ebooks\/(\d+)/)[1])) },
-      $setOnInsert: { title, author, category, link, description },
-    }, { upsert: true })));
+  const imported = await importCatalog();
+  for (const [title, author, category, link, description] of books) {
+    const id = link.match(/\/ebooks\/(\d+)/)?.[1];
+    if (!id) continue;
+    const metadata = imported.get(id);
+    const record = metadata || {};
+    const completeText = !unavailableTextIds.has(id);
+    imported.set(id, {
+      ...record,
+      title,
+      author,
+      category: oldCategories[category] || category,
+      description,
+      subjects: record.subjects?.length ? record.subjects : [category],
+      language: record.language || 'en',
+      source: 'Project Gutenberg',
+      rightsStatus: 'Public domain',
+      sourceId: id,
+      plainTextUrl: record.plainTextUrl || `https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`,
+      coverUrl: record.coverUrl || `https://www.gutenberg.org/cache/epub/${id}/pg${id}.cover.medium.jpg`,
+      link,
+      completeText,
+    });
+  }
+  for (const book of openBooks) imported.set(book.sourceId, book);
+
+  const existing = await Book.find({}, '_id title sourceId').lean();
+  const byId = new Map(existing.filter((book) => book.sourceId).map((book) => [book.sourceId, book._id]));
+  const byTitle = new Map(existing.map((book) => [book.title, book._id]));
+  const operations = [...imported.values()].map((record) => {
+    const existingId = byId.get(record.sourceId) || byTitle.get(record.title);
+    return {
+      updateOne: {
+        filter: existingId ? { _id: existingId } : { sourceId: record.sourceId },
+        update: { $set: record },
+        upsert: true,
+      },
+    };
+  });
+  await Book.bulkWrite(operations, { ordered: false });
+
+  await Promise.all(books.filter(([, , , link]) => !link.match(/\/ebooks\/(\d+)/)).map(([title]) =>
+    Book.updateOne({ title }, { $set: { completeText: false } })));
+  await Book.updateMany({
+    completeText: true,
+    $or: [
+      { category: /religion|spiritual/i },
+      { title: excludedTitle },
+      { category: { $ne: 'Soha' }, $or: [{ title: religiousSubjects }, { subjects: religiousSubjects }] },
+    ],
+  }, { $set: { completeText: false } });
   if (!(await User.findOne({ email: 'admin@bookhub.com' })))
     await User.create({ name: 'Admin', email: 'admin@bookhub.com', password: await bcrypt.hash('admin123', 10), role: 'admin' });
-  console.log(`Catalog ready: ${await Book.countDocuments({ completeText: true })} complete books available in-app.`);
+  console.log(`Catalog ready: ${await Book.countDocuments({ completeText: true })} complete books available in-app; ${imported.size} sourced records processed.`);
   process.exit(0);
 })();

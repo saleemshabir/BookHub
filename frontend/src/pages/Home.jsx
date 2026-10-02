@@ -5,12 +5,24 @@ import { useAuth } from '../auth.js';
 import { getLibrary, setLibraryEntry } from '../library.js';
 import BookCover from '../components/BookCover.jsx';
 
+const languageName = (code) => {
+  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code; }
+  catch { return code; }
+};
+const languageCode = (query, languages) => {
+  const term = query.trim().toLocaleLowerCase();
+  return languages.find((code) => code.toLocaleLowerCase() === term || languageName(code).toLocaleLowerCase().startsWith(term)) || query;
+};
+
 export default function Home() {
   const { user } = useAuth();
   const [books, setBooks] = useState([]);
   const [cats, setCats] = useState([]);
+  const [languages, setLanguages] = useState([]);
   const [cat, setCat] = useState('All');
+  const [language, setLanguage] = useState('All');
   const [q, setQ] = useState('');
+  const [searchBy, setSearchBy] = useState('all');
   const [shelfOnly, setShelfOnly] = useState(false);
   const [sort, setSort] = useState('title');
   const [library, setLibrary] = useState(getLibrary);
@@ -19,13 +31,21 @@ export default function Home() {
   const [notice, setNotice] = useState('');
   const [err, setErr] = useState('');
 
-  useEffect(() => { api('/books/categories').then(setCats).catch((e) => setErr(e.message)); }, []);
   useEffect(() => {
+    Promise.all([api('/books/categories'), api('/books/languages')])
+      .then(([categories, availableLanguages]) => { setCats(categories); setLanguages(availableLanguages); })
+      .catch((e) => setErr(e.message));
+  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = searchBy === 'language' ? languageCode(q, languages) : q;
     const t = setTimeout(() =>
-      api(`/books?category=${encodeURIComponent(cat)}&q=${encodeURIComponent(q)}`)
-        .then((b) => { setBooks(b); setErr(''); }).catch((e) => setErr(e.message)), 250);
-    return () => clearTimeout(t);
-  }, [cat, q, refresh]);
+      api(`/books?category=${encodeURIComponent(cat)}&language=${encodeURIComponent(language)}&field=${encodeURIComponent(searchBy)}&q=${encodeURIComponent(query)}`, { signal: controller.signal })
+        .then((b) => { setBooks(b); setErr(''); }).catch((e) => {
+          if (e.name !== 'AbortError') setErr(e.message);
+        }), 250);
+    return () => { clearTimeout(t); controller.abort(); };
+  }, [cat, language, languages, q, searchBy, refresh]);
 
   const saveBook = (bookId) => {
     const next = setLibraryEntry(bookId, { saved: !library[bookId]?.saved });
@@ -39,7 +59,9 @@ export default function Home() {
     try {
       await api('/books', { method: 'POST', body: form });
       setForm({ title: '', author: '', category: '', link: '', description: '' });
-      setCats(await api('/books/categories'));
+      const [categories, availableLanguages] = await Promise.all([api('/books/categories'), api('/books/languages')]);
+      setCats(categories);
+      setLanguages(availableLanguages);
       setNotice('Book added to the catalog.');
       setRefresh((value) => value + 1);
     } catch (e) { setErr(e.message); }
@@ -56,16 +78,33 @@ export default function Home() {
         <h1>Welcome to a quiet corner of free reading.</h1>
         <p>Explore public-domain books, save what you love, and pick up where you left off.</p>
         <label className="search-wrap">
-          <span className="sr-only">Search books by title or author</span>
-          <input className="search" placeholder="Search by title or author" value={q} onChange={(e) => setQ(e.target.value)} />
+          <span className="sr-only">Search the library</span>
+          <select aria-label="Search field" className="search-field" value={searchBy} onChange={(e) => setSearchBy(e.target.value)}>
+            <option value="all">All fields</option>
+            <option value="title">Title</option>
+            <option value="author">Author</option>
+            <option value="category">Category</option>
+            <option value="subject">Subject</option>
+            <option value="language">Language</option>
+          </select>
+          <input className="search" placeholder="Search title, author, subject…" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
       </section>
 
       <div className="catalog-tools">
-        <div className="chips" aria-label="Filter books by category">
-          {['All', ...cats].map((c) => (
-            <button key={c} className={c === cat ? 'chip on' : 'chip'} onClick={() => setCat(c)}>{c}</button>
-          ))}
+        <div className="filter-controls" aria-label="Filter books">
+          <label className="sort-label">Category
+            <select value={cat} onChange={(e) => setCat(e.target.value)}>
+              <option value="All">All categories</option>
+              {cats.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </label>
+          <label className="sort-label">Language
+            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+              <option value="All">All languages</option>
+              {languages.map((code) => <option key={code} value={code}>{languageName(code)}</option>)}
+            </select>
+          </label>
         </div>
         <div className="library-controls">
           <button className={shelfOnly ? 'chip on' : 'chip'} onClick={() => setShelfOnly(!shelfOnly)}>
@@ -83,21 +122,34 @@ export default function Home() {
       {err && <p className="error">{err}. Check that the server is running and the database is seeded.</p>}
       <div className="grid">
         {visibleBooks.map((b) => (
-          <article key={b._id} className="book">
+          <article key={b._id} className="book" dir={b.language === 'ur' ? 'rtl' : 'ltr'}>
             <Link to={`/books/${b._id}`} className="cover-link" aria-label={`Open ${b.title}`}>
               <BookCover book={b} />
             </Link>
             <div className="book-info">
               <div className="book-topline">
                 <span className="cat">{b.category}</span>
-                <button className={library[b._id]?.saved ? 'save-button saved' : 'save-button'} onClick={() => saveBook(b._id)} aria-label={library[b._id]?.saved ? `Remove ${b.title} from my shelf` : `Save ${b.title} to my shelf`} title={library[b._id]?.saved ? 'Remove from my shelf' : 'Save to my shelf'}>
-                  {library[b._id]?.saved ? 'Saved' : '+ Save'}
-                </button>
               </div>
               <Link to={`/books/${b._id}`} className="book-link">
                 <h3>{b.title}</h3>
                 <span className="author">{b.author}</span>
               </Link>
+              <p className="book-description">{b.description}</p>
+              <p className="book-facts">
+                {languageName(b.language || 'en')} · {b.pageCount ? `${b.pageCount} pages` : 'Page count not listed'} · {b.source || 'Project Gutenberg'}
+              </p>
+              <div className="book-actions">
+                {b.readerUrl ? (
+                  <Link className="btn small" to={`/books/${b._id}/read`}>Read Now</Link>
+                ) : b.readerType === 'external' ? (
+                  <a className="btn small" href={b.link} target="_blank" rel="noreferrer">Open source</a>
+                ) : (
+                  <Link className="btn small" to={`/books/${b._id}/read`}>{library[b._id]?.page > 0 ? 'Continue reading' : 'Read Now'}</Link>
+                )}
+                <button className={library[b._id]?.saved ? 'save-button saved' : 'save-button'} onClick={() => saveBook(b._id)} aria-label={library[b._id]?.saved ? `Remove ${b.title} from my shelf` : `Save ${b.title} for later`}>
+                  {library[b._id]?.saved ? 'Saved' : 'Save for later'}
+                </button>
+              </div>
               {library[b._id]?.status && <span className="reading-status">{library[b._id].status === 'reading' ? 'Currently reading' : 'Finished'}</span>}
             </div>
           </article>
@@ -108,7 +160,7 @@ export default function Home() {
       {user?.role === 'admin' && (
         <section className="admin-tools">
           <h2>Add a free book</h2>
-          <p className="muted">Add a title with a link to its free reading edition.</p>
+          <p className="muted">Add a Project Gutenberg title with a complete plaintext edition.</p>
           <form className="book-form" onSubmit={addBook}>
             <input placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
             <input placeholder="Author" value={form.author} onChange={(e) => setForm({ ...form, author: e.target.value })} required />

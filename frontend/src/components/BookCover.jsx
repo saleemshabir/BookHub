@@ -3,8 +3,8 @@ import { hue } from '../hue.js';
 
 export default function BookCover({ book, className = '' }) {
   const [unavailable, setUnavailable] = useState(false);
-  const id = book.link.match(/\/ebooks\/(\d+)/)?.[1];
-  const src = id && `https://www.gutenberg.org/cache/epub/${id}/pg${id}.cover.medium.jpg`;
+  const id = book.link?.match(/\/ebooks\/(\d+)/)?.[1];
+  const src = book.coverUrl || (id && `https://www.gutenberg.org/cache/epub/${id}/pg${id}.cover.medium.jpg`);
 
   return (
     <div className={`book-cover ${className}`} style={{ '--h': hue(book.category) }}>

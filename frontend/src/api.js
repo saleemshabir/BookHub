@@ -1,7 +1,8 @@
-export async function api(path, { method = 'GET', body } = {}) {
+export async function api(path, { method = 'GET', body, signal } = {}) {
   const token = localStorage.getItem('token');
   const res = await fetch('/api' + path, {
     method,
+    signal,
     headers: { 'Content-Type': 'application/json', ...(token && { Authorization: 'Bearer ' + token }) },
     body: body && JSON.stringify(body),
   });

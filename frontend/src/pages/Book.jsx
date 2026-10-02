@@ -33,7 +33,7 @@ export default function Book() {
   if (!book) return <p className={err ? 'error' : 'muted'}>{err || 'Loading…'}</p>;
 
   return (
-    <article className="detail" style={{ '--h': hue(book.category) }}>
+    <article className="detail" dir={book.language === 'ur' ? 'rtl' : 'ltr'} style={{ '--h': hue(book.category) }}>
       <Link to="/" className="back">Back to all books</Link>
       <div className="detail-heading">
         <BookCover book={book} className="detail-cover" />
@@ -44,8 +44,21 @@ export default function Book() {
         </div>
       </div>
       <p className="desc">{book.description}</p>
+      <dl className="book-metadata">
+        <div><dt>Language</dt><dd>{new Intl.DisplayNames(['en'], { type: 'language' }).of(book.language || 'en') || book.language}</dd></div>
+        <div><dt>Pages</dt><dd>{book.pageCount || 'Not listed by source'}</dd></div>
+        <div><dt>Source</dt><dd><a href={book.link} target="_blank" rel="noreferrer">{book.source || 'Project Gutenberg'}</a></dd></div>
+        <div><dt>Rights</dt><dd>{book.rightsStatus || 'Public domain'}</dd></div>
+        {book.subjects?.length > 0 && <div className="subject-list"><dt>Subjects</dt><dd>{book.subjects.slice(0, 8).join(' · ')}</dd></div>}
+      </dl>
       <div className="reading-actions">
-        <Link className="btn" to={`/books/${id}/read`}>Read the complete book</Link>
+        {book.readerUrl ? (
+          <Link className="btn" to={`/books/${id}/read`}>Read Now</Link>
+        ) : book.readerType === 'external' ? (
+          <a className="btn" href={book.link} target="_blank" rel="noreferrer">Open source</a>
+        ) : (
+          <Link className="btn" to={`/books/${id}/read`}>{library[id]?.page > 0 ? 'Continue reading' : 'Read Now'}</Link>
+        )}
         <button className={library[id]?.saved ? 'chip on' : 'chip'} onClick={() => updateLibrary({ saved: !library[id]?.saved })}>
           {library[id]?.saved ? 'Saved to my shelf' : 'Save to my shelf'}
         </button>
