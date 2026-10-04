@@ -139,7 +139,7 @@ export default function Home() {
                 {languageName(b.language || 'en')} · {b.pageCount ? `${b.pageCount} pages` : 'Page count not listed'} · {b.source || 'Project Gutenberg'}
               </p>
               <div className="book-actions">
-                {b.readerUrl ? (
+                {b.readerUrl || (b.readerType === 'external' && /^https:\/\/([a-z-]+\.)?wikipedia\.org\/wiki\//.test(b.link)) ? (
                   <Link className="btn small" to={`/books/${b._id}/read`}>Read Now</Link>
                 ) : b.readerType === 'external' ? (
                   <a className="btn small" href={b.link} target="_blank" rel="noreferrer">Open source</a>

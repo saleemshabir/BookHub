@@ -52,7 +52,7 @@ export default function Book() {
         {book.subjects?.length > 0 && <div className="subject-list"><dt>Subjects</dt><dd>{book.subjects.slice(0, 8).join(' · ')}</dd></div>}
       </dl>
       <div className="reading-actions">
-        {book.readerUrl ? (
+        {book.readerUrl || (book.readerType === 'external' && /^https:\/\/([a-z-]+\.)?wikipedia\.org\/wiki\//.test(book.link)) ? (
           <Link className="btn" to={`/books/${id}/read`}>Read Now</Link>
         ) : book.readerType === 'external' ? (
           <a className="btn" href={book.link} target="_blank" rel="noreferrer">Open source</a>

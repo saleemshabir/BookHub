@@ -6,7 +6,10 @@ const { isExcludedBook } = require('../libraryPolicy');
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const gutenbergId = (link = '') => link.match(/^https:\/\/www\.gutenberg\.org\/ebooks\/(\d+)(?:[/?#]|$)/)?.[1];
-const catalogFilter = { $or: [{ completeText: true }, { readerType: 'external' }] };
+const catalogFilter = {
+  category: { $not: /^Medical$/i },
+  $or: [{ completeText: true }, { readerType: 'external' }],
+};
 const textCache = new Map();
 
 function allowedReaderUrl(value) {
@@ -16,6 +19,7 @@ function allowedReaderUrl(value) {
       (url.hostname === 'archive.org' && url.pathname.startsWith('/embed/'))
       || (url.hostname === 'ur.wikisource.org' && url.pathname.startsWith('/wiki/'))
       || (url.hostname === 'www.rekhta.org' && url.pathname.startsWith('/ebooks/detail/'))
+      || (url.hostname.endsWith('wikipedia.org') && url.pathname.startsWith('/wiki/'))
     );
   } catch {
     return false;
@@ -45,7 +49,13 @@ async function getCompleteText(book) {
 router.get('/', async (req, res) => {
   const { category, language, subject, q, field = 'all' } = req.query;
   const filter = { $and: [catalogFilter] };
-  if (category && category !== 'All') filter.category = category;
+  if (category && category !== 'All') {
+    if (category === 'Recently Added') {
+      filter.$and.push({ createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) } });
+    } else {
+      filter.category = category;
+    }
+  }
   if (language && language !== 'All') filter.language = language;
   if (subject) filter.subjects = new RegExp(escapeRe(subject), 'i');
   if (q) {
@@ -63,13 +73,22 @@ router.get('/', async (req, res) => {
   res.json(await Book.find(filter).sort('title'));
 });
 
-router.get('/categories', async (_req, res) => res.json((await Book.distinct('category', catalogFilter)).sort()));
+router.get('/categories', async (_req, res) => {
+  const categories = new Set(await Book.distinct('category', catalogFilter));
+  const hasRecentBooks = await Book.exists({
+    ...catalogFilter,
+    createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+  });
+  if (hasRecentBooks) categories.add('Recently Added');
+  res.json(Array.from(categories).sort());
+});
 router.get('/languages', async (_req, res) => res.json((await Book.distinct('language', catalogFilter)).sort()));
 
 router.get('/:id/read', async (req, res) => {
   const book = await Book.findById(req.params.id).catch(() => null);
-  if (book?.readerType === 'external' && allowedReaderUrl(book.readerUrl))
-    return res.json({ book, embedUrl: book.readerUrl });
+  const embedUrl = book?.readerUrl || (book?.readerType === 'external' ? book.link : null);
+  if (book?.readerType === 'external' && allowedReaderUrl(embedUrl))
+    return res.json({ book, embedUrl });
   if (!book || !book.completeText) return res.status(404).json({ message: 'Complete in-app text is not available for this book' });
   if (book.readerType !== 'gutenberg') {
     const result = sourceById.has(book.sourceId) && await readOpenBook(book.sourceId);
@@ -83,7 +102,8 @@ router.get('/:id/read', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   const book = await Book.findById(req.params.id).catch(() => null);
-  book && ((book.readerType === 'external' && allowedReaderUrl(book.readerUrl)) || (book.completeText && (book.readerType !== 'gutenberg' ? sourceById.has(book.sourceId) : gutenbergId(book.link))))
+  const embedUrl = book?.readerUrl || (book?.readerType === 'external' ? book.link : null);
+  book && ((book.readerType === 'external' && allowedReaderUrl(embedUrl)) || (book.completeText && (book.readerType !== 'gutenberg' ? sourceById.has(book.sourceId) : gutenbergId(book.link))))
     ? res.json(book)
     : res.status(404).json({ message: 'Book not found' });
 });

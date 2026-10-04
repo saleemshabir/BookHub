@@ -164,6 +164,12 @@ async function importCatalog() {
 
 (async () => {
   await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bookhub');
+  await Book.deleteMany({
+    $or: [
+      { sourceId: /^medical-/ },
+      { category: /^Medical$/i },
+    ],
+  });
   const imported = await importCatalog();
   for (const [title, author, category, link, description] of books) {
     const id = link.match(/\/ebooks\/(\d+)/)?.[1];
