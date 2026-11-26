@@ -16,7 +16,8 @@ export default function App() {
     setUser(user);
   };
   const logout = () => {
-    localStorage.clear();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
     navigate('/');
   };

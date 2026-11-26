@@ -52,6 +52,10 @@ export default function Home() {
     setLibrary(next);
   };
 
+  const resetFilters = () => {
+    setCat('All'); setLanguage('All'); setQ(''); setSearchBy('all'); setShelfOnly(false);
+  };
+
   const addBook = async (e) => {
     e.preventDefault();
     setNotice('');
@@ -120,6 +124,10 @@ export default function Home() {
       </div>
 
       {err && <p className="error">{err}. Check that the server is running and the database is seeded.</p>}
+      {!err && <div className="results-summary" aria-live="polite">
+        <span>{visibleBooks.length} {visibleBooks.length === 1 ? 'book' : 'books'} shown</span>
+        {(cat !== 'All' || language !== 'All' || q || shelfOnly) && <button className="link reset-filters" onClick={resetFilters}>Clear filters</button>}
+      </div>}
       <div className="grid">
         {visibleBooks.map((b) => (
           <article key={b._id} className="book" dir={b.language === 'ur' ? 'rtl' : 'ltr'}>
@@ -138,14 +146,9 @@ export default function Home() {
               <p className="book-facts">
                 {languageName(b.language || 'en')} · {b.pageCount ? `${b.pageCount} pages` : 'Page count not listed'} · {b.source || 'Project Gutenberg'}
               </p>
+              <span className="reader-badge">Full text in BookHub</span>
               <div className="book-actions">
-                {b.readerUrl || (b.readerType === 'external' && /^https:\/\/([a-z-]+\.)?wikipedia\.org\/wiki\//.test(b.link)) ? (
-                  <Link className="btn small" to={`/books/${b._id}/read`}>Read Now</Link>
-                ) : b.readerType === 'external' ? (
-                  <a className="btn small" href={b.link} target="_blank" rel="noreferrer">Open source</a>
-                ) : (
-                  <Link className="btn small" to={`/books/${b._id}/read`}>{library[b._id]?.page > 0 ? 'Continue reading' : 'Read Now'}</Link>
-                )}
+                <Link className="btn small" to={`/books/${b._id}/read`}>{library[b._id]?.page > 0 ? 'Continue reading' : 'Read Now'}</Link>
                 <button className={library[b._id]?.saved ? 'save-button saved' : 'save-button'} onClick={() => saveBook(b._id)} aria-label={library[b._id]?.saved ? `Remove ${b.title} from my shelf` : `Save ${b.title} for later`}>
                   {library[b._id]?.saved ? 'Saved' : 'Save for later'}
                 </button>

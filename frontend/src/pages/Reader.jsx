@@ -34,7 +34,6 @@ function highlighted(text, query) {
 export default function Reader() {
   const { id } = useParams();
   const [book, setBook] = useState(null);
-  const [embedUrl, setEmbedUrl] = useState('');
   const [content, setContent] = useState('');
   const [pages, setPages] = useState([]);
   const [chapters, setChapters] = useState([]);
@@ -47,16 +46,11 @@ export default function Reader() {
   useEffect(() => {
     let active = true;
     setBook(null);
-    setEmbedUrl('');
     setErr('');
     api(`/books/${id}/read`)
       .then((data) => {
         if (active) {
           setBook(data.book);
-          if (data.embedUrl) {
-            setEmbedUrl(data.embedUrl);
-            return;
-          }
           setContent(data.content);
           setChapters(data.chapters || []);
           const bookPages = paginate(data.content, data.chapters || []);
@@ -69,7 +63,7 @@ export default function Reader() {
   }, [id]);
 
   useEffect(() => {
-    if (!book || embedUrl || !pages.length) return;
+    if (!book || !pages.length) return;
     setLibraryEntry(id, {
       saved: true,
       status: currentPage === pages.length - 1 ? 'finished' : 'reading',
@@ -99,20 +93,6 @@ export default function Reader() {
 
   if (err) return <p className="error">{err} <Link to="/">Back to the library</Link></p>;
   if (!book) return <p className="muted">Loading complete text…</p>;
-  if (embedUrl) return (
-    <article className="reader" dir={book.language === 'ur' ? 'rtl' : 'ltr'} style={{ '--h': hue(book.category) }}>
-      <div className="reader-toolbar">
-        <Link to={`/books/${id}`} className="back">Book details</Link>
-        <a href={book.link} target="_blank" rel="noreferrer">Source: {book.source}</a>
-      </div>
-      <header className="reader-heading">
-        <span className="cat">{book.category} · {book.source}</span>
-        <h1>{book.title}</h1>
-        <p className="author">{book.author}</p>
-      </header>
-      <iframe className="reader-embed" src={embedUrl} title={`Read ${book.title}`} referrerPolicy="no-referrer" allowFullScreen />
-    </article>
-  );
 
   return (
     <article className="reader" dir={book.language === 'ur' ? 'rtl' : 'ltr'} style={{ '--h': hue(book.category), '--reader-size': `${fontSize}px` }}>

@@ -8,22 +8,18 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const gutenbergId = (link = '') => link.match(/^https:\/\/www\.gutenberg\.org\/ebooks\/(\d+)(?:[/?#]|$)/)?.[1];
 const catalogFilter = {
   category: { $not: /^Medical$/i },
-  $or: [{ completeText: true }, { readerType: 'external' }],
+  completeText: true,
+  $or: [
+    { readerType: 'gutenberg', link: /^https:\/\/www\.gutenberg\.org\/ebooks\/\d+(?:[/?#]|$)/ },
+    { readerType: { $in: ['licensed-html', 'licensed-text'] }, sourceId: { $in: [...sourceById.keys()] } },
+  ],
 };
 const textCache = new Map();
 
-function allowedReaderUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && (
-      (url.hostname === 'archive.org' && url.pathname.startsWith('/embed/'))
-      || (url.hostname === 'ur.wikisource.org' && url.pathname.startsWith('/wiki/'))
-      || (url.hostname === 'www.rekhta.org' && url.pathname.startsWith('/ebooks/detail/'))
-      || (url.hostname.endsWith('wikipedia.org') && url.pathname.startsWith('/wiki/'))
-    );
-  } catch {
-    return false;
-  }
+function isReadableBook(book) {
+  if (!book?.completeText) return false;
+  if (book.readerType === 'gutenberg') return Boolean(gutenbergId(book.link));
+  return ['licensed-html', 'licensed-text'].includes(book.readerType) && sourceById.has(book.sourceId);
 }
 
 async function getCompleteText(book) {
@@ -86,12 +82,9 @@ router.get('/languages', async (_req, res) => res.json((await Book.distinct('lan
 
 router.get('/:id/read', async (req, res) => {
   const book = await Book.findById(req.params.id).catch(() => null);
-  const embedUrl = book?.readerUrl || (book?.readerType === 'external' ? book.link : null);
-  if (book?.readerType === 'external' && allowedReaderUrl(embedUrl))
-    return res.json({ book, embedUrl });
-  if (!book || !book.completeText) return res.status(404).json({ message: 'Complete in-app text is not available for this book' });
+  if (!isReadableBook(book)) return res.status(404).json({ message: 'Complete in-app text is not available for this book' });
   if (book.readerType !== 'gutenberg') {
-    const result = sourceById.has(book.sourceId) && await readOpenBook(book.sourceId);
+    const result = await readOpenBook(book.sourceId);
     if (!result) return res.status(502).json({ message: 'The complete licensed edition is temporarily unavailable' });
     return res.json(result);
   }
@@ -102,8 +95,7 @@ router.get('/:id/read', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   const book = await Book.findById(req.params.id).catch(() => null);
-  const embedUrl = book?.readerUrl || (book?.readerType === 'external' ? book.link : null);
-  book && ((book.readerType === 'external' && allowedReaderUrl(embedUrl)) || (book.completeText && (book.readerType !== 'gutenberg' ? sourceById.has(book.sourceId) : gutenbergId(book.link))))
+  isReadableBook(book)
     ? res.json(book)
     : res.status(404).json({ message: 'Book not found' });
 });

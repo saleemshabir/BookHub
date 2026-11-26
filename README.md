@@ -6,12 +6,13 @@ A full-stack MERN app: browse source-backed public-domain books, read complete t
 
 ## Features
 - Additive import of verified Project Gutenberg public-domain books plus selected, license-verified open textbooks (Pro Git, Eloquent JavaScript, Open Data Structures)
-- Soha shelf for Urdu books: public-domain Bagh-o-Bahar and Fasana-e-Azad volumes, plus the Urdu Wikisource Quran text
+- Personal Picks shelf for Urdu books: Bagh-o-Bahar and Fasana-e-Azad volumes, plus the Urdu Wikisource Quran text
 - Real author, subject, language, summary, cover, source, and rights metadata where supplied; unknown page counts are not invented
 - Filter by category and language; search title, author, category, subject, or language
 - Paginated in-app reader with chapter navigation for supported open books, text search, and automatic saved position
 - Save books to a browser-based personal shelf and track titles as currently reading or finished
-- The Religion & Spirituality category is removed; Soha is a limited Urdu exception for verified Islamic texts, while sensitive-title matches remain excluded
+- Only books with a complete in-app reader appear in the catalog; reading does not send you to an external site
+- The Religion & Spirituality category is removed; Personal Picks is a limited Urdu exception for verified Islamic texts, while sensitive-title matches remain excluded
 - Register / log in (JWT)
 - Comment on any book; delete your own comments (admins can delete any)
 - Admin can add books from the catalog page or with `POST /api/books`; new entries are checked for a complete plain-text edition

@@ -69,6 +69,12 @@ const books = [
   ['Utopia', 'Thomas More', 'Philosophy', G(2130), 'A dialogue imagining a society organized around shared resources.'],
   ['Common Sense', 'Thomas Paine', 'History', G(147), 'A concise 1776 argument for American independence.'],
   ['The Federalist Papers', 'Alexander Hamilton, James Madison and John Jay', 'History', G(18), 'Essays explaining and defending the proposed United States Constitution.'],
+  ['A Tale of Two Cities', 'Charles Dickens', 'Literature', G(98), 'A historical novel set in London and Paris during the French Revolution.'],
+  ['Around the World in Eighty Days', 'Jules Verne', 'Literature', G(103), 'Phileas Fogg races around the world in an eighty-day wager.'],
+  ['The Wonderful Wizard of Oz', 'L. Frank Baum', 'Literature', G(55), 'Dorothy travels through Oz with her companions in search of home.'],
+  ['The Secret Garden', 'Frances Hodgson Burnett', 'Literature', G(113), 'A lonely child discovers a hidden garden and helps it bloom again.'],
+  ['The Importance of Being Earnest', 'Oscar Wilde', 'Literature', G(844), 'A witty comedy of mistaken identities, romance and Victorian manners.'],
+  ['The Picture of Dorian Gray', 'Oscar Wilde', 'Literature', G(174), 'A young man pursues beauty and pleasure as a portrait records the cost.'],
 ];
 
 const oldCategories = {
@@ -107,6 +113,7 @@ function importedRecord(record, category) {
     plainTextUrl,
     coverUrl: record.formats?.['image/jpeg'] || '',
     link: `https://www.gutenberg.org/ebooks/${record.id}`,
+    readerType: 'gutenberg',
     completeText: Boolean(plainTextUrl && record.copyright === false),
   };
 }
@@ -170,6 +177,7 @@ async function importCatalog() {
       { category: /^Medical$/i },
     ],
   });
+  await Book.updateMany({ category: 'Soha' }, { $set: { category: 'Personal Picks' } });
   const imported = await importCatalog();
   for (const [title, author, category, link, description] of books) {
     const id = link.match(/\/ebooks\/(\d+)/)?.[1];
@@ -191,6 +199,7 @@ async function importCatalog() {
       plainTextUrl: record.plainTextUrl || `https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`,
       coverUrl: record.coverUrl || `https://www.gutenberg.org/cache/epub/${id}/pg${id}.cover.medium.jpg`,
       link,
+      readerType: 'gutenberg',
       completeText,
     });
   }
@@ -218,7 +227,7 @@ async function importCatalog() {
     $or: [
       { category: /religion|spiritual/i },
       { title: excludedTitle },
-      { category: { $ne: 'Soha' }, $or: [{ title: religiousSubjects }, { subjects: religiousSubjects }] },
+      { category: { $ne: 'Personal Picks' }, $or: [{ title: religiousSubjects }, { subjects: religiousSubjects }] },
     ],
   }, { $set: { completeText: false } });
   if (!(await User.findOne({ email: 'admin@bookhub.com' })))

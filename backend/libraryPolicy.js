@@ -3,10 +3,10 @@ const religiousSubjects = /\b(?:religion\w*|spiritual\w*|theolog\w*|bible|biblic
 
 function isExcludedBook(book) {
   const subjects = Array.isArray(book.subjects) ? book.subjects.join(' ') : book.subjects || '';
-  const isSoha = /^soha$/i.test(book.category || '');
+  const isPersonalPick = /^personal picks$/i.test(book.category || '');
   return /religion|spiritual/i.test(book.category || '')
     || excludedTitle.test(book.title || '')
-    || (!isSoha && (religiousSubjects.test(book.title || '') || religiousSubjects.test(subjects)));
+    || (!isPersonalPick && (religiousSubjects.test(book.title || '') || religiousSubjects.test(subjects)));
 }
 
 module.exports = { excludedTitle, religiousSubjects, isExcludedBook };
