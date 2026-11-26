@@ -1,4 +1,5 @@
 const cheerio = require('cheerio');
+const { studyBooks } = require('./studyBooks');
 
 const openBooks = [
   {
@@ -116,6 +117,7 @@ const openBooks = [
     readerType: 'licensed-html',
     completeText: true,
   },
+  ...studyBooks,
 ];
 
 const sourceById = new Map(openBooks.map((book) => [book.sourceId, book]));
@@ -129,7 +131,8 @@ const readers = {
     minimumChapters: 10,
   },
   'ur-wikisource-aab-e-hayat': {
-    indexUrl: 'https://ur.wikisource.org/wiki/آب_حیات/فہرست_مطالب',
+    // The contents page lists chapters as plain text; the work page has the actual links.
+    indexUrl: 'https://ur.wikisource.org/wiki/آب_حیات',
     rootUrl: 'https://ur.wikisource.org/wiki/',
     linkPattern: /^\/wiki\/آب_حیات\//,
     container: '#mw-content-text .mw-parser-output',
@@ -141,6 +144,7 @@ const readers = {
     linkPattern: /^\/wiki\/سور(?:ۃ|ہ|ة)_/,
     container: '#mw-content-text .mw-parser-output',
     minimumChapters: 114,
+    concurrency: 3,
     extraChapters: [{
       url: 'https://ur.wikisource.org/wiki/1-%D8%B3%D9%88%D8%B1%DB%81_%D9%81%D8%A7%D8%AA%D8%AD%DB%81',
       title: 'سورة الفاتحة',
@@ -182,15 +186,19 @@ async function fetchHtml(url) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const response = await fetch(url, {
-        headers: { 'User-Agent': 'BookHub/1.0 (open text reader)' },
+        headers: {
+          'User-Agent': 'BookHub/1.0 (open text reader)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
         signal: AbortSignal.timeout(20000),
       });
       if (response.ok && (response.headers.get('content-type') || '').includes('text/html'))
         return await response.text();
-      if (response.status < 500) return null;
+      if (response.status < 500 && response.status !== 429) return null;
     } catch {
       if (attempt === 2) return null;
     }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
   }
   return null;
 }
@@ -232,6 +240,17 @@ function chapterText(html, reader, title) {
 }
 
 async function loadOpenBook(sourceId, reader, book) {
+  if (book.readerType === 'local') {
+    let content = '';
+    const chapters = book.localChapters.map((chapter) => {
+      const start = content.length;
+      content += `${chapter.title}\n\n${chapter.text}\n\n`;
+      return { title: chapter.title, start, end: content.length };
+    });
+    const { localChapters, ...readerBook } = book;
+    return { book: readerBook, content, chapters };
+  }
+
   if (reader.textUrl) {
     try {
       const response = await fetch(reader.textUrl, {
@@ -254,7 +273,7 @@ async function loadOpenBook(sourceId, reader, book) {
 
   const chapters = new Array(links.length);
   let next = 0;
-  const workers = Array.from({ length: 5 }, async () => {
+  const workers = Array.from({ length: reader.concurrency || 4 }, async () => {
     while (next < links.length) {
       const index = next++;
       const link = links[index];
@@ -277,7 +296,7 @@ async function loadOpenBook(sourceId, reader, book) {
 async function readOpenBook(sourceId) {
   const reader = readers[sourceId];
   const book = sourceById.get(sourceId);
-  if (!reader || !book) return null;
+  if (!book || (!reader && book.readerType !== 'local')) return null;
   if (readerCache.has(sourceId)) return readerCache.get(sourceId);
 
   const pending = loadOpenBook(sourceId, reader, book);

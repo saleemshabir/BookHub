@@ -18,7 +18,7 @@ const Book = m.model('Book', new m.Schema({
   source: { type: String, default: 'Project Gutenberg' },
   rightsStatus: { type: String, default: 'Public domain' },
   sourceId: String,
-  readerType: { type: String, enum: ['gutenberg', 'licensed-html', 'licensed-text', 'external'], default: 'gutenberg' },
+  readerType: { type: String, enum: ['gutenberg', 'licensed-html', 'licensed-text', 'local', 'external'], default: 'gutenberg' },
   readerUrl: String,
   plainTextUrl: String,
   coverUrl: String,

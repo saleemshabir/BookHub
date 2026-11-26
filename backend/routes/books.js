@@ -11,7 +11,7 @@ const catalogFilter = {
   completeText: true,
   $or: [
     { readerType: 'gutenberg', link: /^https:\/\/www\.gutenberg\.org\/ebooks\/\d+(?:[/?#]|$)/ },
-    { readerType: { $in: ['licensed-html', 'licensed-text'] }, sourceId: { $in: [...sourceById.keys()] } },
+    { readerType: { $in: ['licensed-html', 'licensed-text', 'local'] }, sourceId: { $in: [...sourceById.keys()] } },
   ],
 };
 const textCache = new Map();
@@ -19,6 +19,7 @@ const textCache = new Map();
 function isReadableBook(book) {
   if (!book?.completeText) return false;
   if (book.readerType === 'gutenberg') return Boolean(gutenbergId(book.link));
+  if (book.readerType === 'local') return sourceById.has(book.sourceId);
   return ['licensed-html', 'licensed-text'].includes(book.readerType) && sourceById.has(book.sourceId);
 }
 
